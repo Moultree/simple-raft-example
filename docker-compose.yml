@@ -1,0 +1,59 @@
+version: '3'
+services:
+  node1:
+    image: raft-container-node:1
+    build: .
+    environment:
+      - NODE_ID=1
+      - PEERS=node2:6501,node3:6502
+    ports:
+      - "6500:5000"
+    networks:
+      - raft-network
+    restart: always
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./disk:/app/disk 
+    depends_on:
+      - node2
+      - node3
+
+  node2:
+    image: raft-container-node:2
+    build: .
+    environment:
+      - NODE_ID=2
+      - PEERS=node1:6500,node3:6502
+    ports:
+      - "6501:5000"
+    networks:
+      - raft-network
+    restart: always
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./disk:/app/disk 
+    depends_on:
+      - node1
+      - node3
+
+  node3:
+    image: raft-container-node:3
+    build: .
+    environment:
+      - NODE_ID=3
+      - PEERS=node1:6500,node2:6501 
+    ports:
+      - "6502:5000"
+    networks:
+      - raft-network
+    restart: always
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./disk:/app/disk 
+    depends_on:
+      - node1
+      - node2
+      
+networks:
+  raft-network:
+    driver: bridge
