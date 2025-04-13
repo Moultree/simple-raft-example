@@ -9,11 +9,6 @@ from servers.candidate import CandidateState
 from servers.leader import LeaderState
 import docker
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="[%(asctime)s] %(levelname)s - %(message)s",
-)
-
 
 class Node:
     def __init__(self, node_id, peers):
@@ -30,6 +25,7 @@ class Node:
         self.current_state = None
         self.docker_client = docker.from_env()
         self.container_name = f"raft-containter-node:{node_id}"
+        self.logger = logging.getLogger("raft")
 
         self.app.add_url_rule(
             "/receive_message",
@@ -63,21 +59,21 @@ class Node:
                 try:
                     container = self.docker_client.containers.get(self.container_name)
                     container.stop()
-                    logging.info(f"[Узел {self.node_id}] Контейнер остановлен")
+                    self.logger.info(f"[Узел {self.node_id}] Контейнер остановлен")
 
                     time.sleep(duration)
 
                     container.start()
-                    logging.info(
+                    self.logger.info(
                         f"[Узел {self.node_id}] Контейнер перезапущен через {duration} секунд"
                     )
 
                 except docker.errors.NotFound:
-                    logging.error(
+                    self.logger.error(
                         f"[Узел {self.node_id}] Контейнер не найден: {self.container_name}"
                     )
                 except Exception as e:
-                    logging.error(
+                    self.logger.error(
                         f"[Узел {self.node_id}] Ошибка при отключении/перезапуске: {str(e)}"
                     )
 
@@ -90,7 +86,7 @@ class Node:
                 200,
             )
         except Exception as e:
-            logging.error(f"[Узел {self.node_id}] Ошибка при отключении: {str(e)}")
+            self.logger.error(f"[Узел {self.node_id}] Ошибка при отключении: {str(e)}")
             return jsonify({"error": str(e)}), 500
 
     def initialize(self):
@@ -105,14 +101,14 @@ class Node:
         try:
             self.app.run(host="0.0.0.0", port=port, threaded=True)
         except Exception as e:
-            logging.error(f"Ошибка сервера: {e}")
+            self.logger.error(f"Ошибка сервера: {e}")
 
     def become_follower(self):
         if self.current_state and hasattr(self.current_state, "stop"):
             self.current_state.stop()
         self.state = "Follower"
         self.current_state = FollowerState(self)
-        logging.info(f"[Узел {self.node_id}] Перешёл в состояние Follower")
+        self.logger.info(f"[Узел {self.node_id}] Перешёл в состояние Follower")
         self.current_state.initialize()
 
     def become_candidate(self):
@@ -120,7 +116,7 @@ class Node:
             self.current_state.stop()
         self.state = "Candidate"
         self.current_state = CandidateState(self)
-        logging.info(f"[Узел {self.node_id}] Перешёл в состояние Candidate")
+        self.logger.info(f"[Узел {self.node_id}] Перешёл в состояние Candidate")
         self.current_state.start()
 
     def become_leader(self):
@@ -128,7 +124,7 @@ class Node:
             self.current_state.stop()
         self.state = "Leader"
         self.current_state = LeaderState(self)
-        logging.info(f"[Узел {self.node_id}] Перешёл в состояние Leader")
+        self.logger.info(f"[Узел {self.node_id}] Перешёл в состояние Leader")
         self.current_state.start_leader()
 
     def receive_message(self):
@@ -138,7 +134,7 @@ class Node:
 
         self.message_log.append((sender, message))
 
-        logging.info(
+        self.logger.info(
             f"[Узел {self.node_id}] Получено сообщение от узла {sender}: {message}"
         )
         return jsonify({"status": "Сообщение получено"}), 200
@@ -155,11 +151,11 @@ class Node:
                     url, json={"sender": self.node_id, "message": message}
                 )
                 if response.status_code == 200:
-                    logging.info(
+                    self.logger.info(
                         f"[Узел {self.node_id}] Отправлено сообщение на {peer}: {message}"
                     )
             except requests.ConnectionError:
-                logging.info(f"[Узел {self.node_id}] Не удалось связаться с {peer}")
+                self.logger.info(f"[Узел {self.node_id}] Не удалось связаться с {peer}")
 
         return jsonify({"status": "Сообщение отправлено всем узлам"}), 200
 
@@ -181,7 +177,7 @@ class Node:
     def client_request(self):
         data = request.get_json()
         message = data.get("message")
-        logging.info(f"[Узел {self.node_id}] получил клиентский запрос")
+        self.logger.info(f"[Узел {self.node_id}] получил клиентский запрос")
 
         if self.state != "Leader" or not isinstance(self.current_state, LeaderState):
             if hasattr(self, "leader_id") and self.leader_id:

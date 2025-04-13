@@ -9,6 +9,7 @@ from flask import request, jsonify
 class FollowerState:
     def __init__(self, node):
         self.node = node
+        self.logger = logging.getLogger("raft")
 
     def stop(self):
         if self.node.election_timer:
@@ -24,7 +25,7 @@ class FollowerState:
         self.node.election_timer.start()
 
     def start_election(self):
-        logging.info(f"[Узел {self.node.node_id}] Не обнаружен лидер, запускаем выборы")
+        self.logger.info(f"[Узел {self.node.node_id}] Не обнаружен лидер, запускаем выборы")
         self.node.become_candidate()
 
     def append_entries(self):
@@ -37,31 +38,41 @@ class FollowerState:
         if heartbeat.term > self.node.current_term:
             self.node.current_term = heartbeat.term
             self.node.voted_for = None
+            self.node.become_follower()
 
         self.node.leader_id = heartbeat.sender_id
 
         logging.info(f"[Узел {self.node.node_id}] Получен heartbeat от лидера {heartbeat.sender_id}")
         self.reset_election_timer()
 
-        entries = data.get('entries', [])
-        prev_log_index = data.get('prev_log_index', -1)
-        prev_log_term = data.get('prev_log_term', -1)
+        prev_log_index = heartbeat.prev_log_index
+        prev_log_term = heartbeat.prev_log_term
 
         if prev_log_index >= len(self.node.message_log):
             return jsonify({"success": False, "reason": "Недостаток логов"}), 200
 
-        if prev_log_index >= 0 and self.node.message_log[prev_log_index]['term'] != prev_log_term:
-            return jsonify({"success": False, "reason": "Несовпадение эпохи"}), 200
+        if prev_log_index >= 0 and self.node.message_log[prev_log_index]["term"] != prev_log_term:
+            self.logger.warning(
+                f"[Узел {self.node.node_id}] Конфликт логов. Удаление с индекса {prev_log_index} и далее"
+            )
+            self.node.message_log = self.node.message_log[:prev_log_index]
+            return jsonify({"success": False, "reason": "Конфликтующие сущности удалены"}), 200
 
+        entries = heartbeat.entries
         if entries:
             self.node.message_log = self.node.message_log[:prev_log_index + 1]
             self.node.message_log.extend(entries)
-            logging.info(f"[Узел {self.node.node_id}] Добавлены записи в лог. Последняя запись: {self.node.message_log[-1]}")
+            self.logger.info(
+                f"[Узел {self.node.node_id}] Добавлены записи: {entries[-1] if entries else '—'}"
+            )
 
-        leader_commit = data.get('leader_commit', self.node.commit_index)
-        if leader_commit > self.node.commit_index:
-            self.node.commit_index = min(leader_commit, len(self.node.message_log) - 1)
-            logging.info(f"[Узел {self.node.node_id}] Обновлён commit_index: {self.node.commit_index}")
+        if heartbeat.leader_commit > self.node.commit_index:
+            self.node.commit_index = min(
+                heartbeat.leader_commit, len(self.node.message_log) - 1
+            )
+            self.logger.info(
+                f"[Узел {self.node.node_id}] Обновлён commit_index до {self.node.commit_index}"
+            )
 
         return jsonify({"success": True}), 200
 
@@ -82,7 +93,7 @@ class FollowerState:
             self.node.voted_for = None
 
         if self.node.voted_for is None or self.node.voted_for == vote_request.sender_id:
-            logging.info(f"[Узел {self.node.node_id}] Голосует за кандидата {vote_request.sender_id} в эпохе {vote_request.term}")
+            self.logger.info(f"[Узел {self.node.node_id}] Голосует за кандидата {vote_request.sender_id} в эпохе {vote_request.term}")
 
             self.node.voted_for = vote_request.sender_id
             self.reset_election_timer()

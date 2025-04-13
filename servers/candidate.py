@@ -1,18 +1,23 @@
 import logging
 import requests
+import random
+import threading
 from messages.vote_request import VoteRequestMessage
 from messages.vote_response import VoteResponseMessage
+from servers.follower import FollowerState
 
 
 class CandidateState:
     def __init__(self, node):
+        self.logger = logging.getLogger("raft")
         self.node = node
+        self.retry_election_timer = None
 
     def start(self):
         self.start_election()
 
     def start_election(self):
-        logging.info(f"[Узел {self.node.node_id}] запускает выборы")
+        self.logger.info(f"[Узел {self.node.node_id}] запускает выборы")
         self.increment_term()
         self.reset_votes()
         self.send_vote_requests()
@@ -54,7 +59,7 @@ class CandidateState:
                     self.process_vote_response(vote_response, peer)
 
             except requests.ConnectionError:
-                logging.warning(
+                self.logger.warning(
                     f"[Узлу {self.node.node_id}] не удалось связаться с {peer} во время выборов"
                 )
 
@@ -62,7 +67,7 @@ class CandidateState:
         if vote_response.vote_granted:
             self.node.votes += 1
         elif vote_response.term > self.node.current_term:
-            logging.info(
+            self.logger.info(
                 f"[Узел {self.node.node_id}] Обнаружен более новая эпоха от {peer}, переключение в ведомого"
             )
             self.node.current_term = vote_response.term
@@ -71,17 +76,28 @@ class CandidateState:
 
     def evaluate_election_result(self):
         if self.node.votes > len(self.node.peers) // 2:
-            logging.info(
+            self.logger.info(
                 f"[Узел {self.node.node_id}] Выиграл выборы, становится лидером"
             )
             self.node.become_leader()
         else:
-            logging.info(
-                f"[Узел {self.node.node_id}] Проиграл выборы, становится ведомым"
+            self.logger.info(
+                f"[Узел {self.node.node_id}] Проиграл выборы, повторная попытка через паузу"
             )
-            self.node.become_follower()
+            self.schedule_retry_election()
+
+    def schedule_retry_election(self):
+        delay = random.uniform(1, 2)
+        self.retry_election_timer = threading.Timer(delay, self.start_election)
+        self.retry_election_timer.start()
+        self.logger.info(
+            f"[Узел {self.node.node_id}] Повтор выборов запланирован через {delay:.2f} сек."
+        )
 
     def stop(self):
-        self.node.current_state = None
-        if hasattr(self, "retry_election_timer"):
+        if self.retry_election_timer:
             self.retry_election_timer.cancel()
+        self.node.current_state = None
+
+    def vote_request(self):
+        return FollowerState(self.node).vote_request()

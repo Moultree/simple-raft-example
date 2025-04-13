@@ -16,6 +16,7 @@ class LeaderState:
         self.next_index = {peer: len(self.node.message_log) for peer in self.node.peers}
         self.match_index = {peer: 0 for peer in self.node.peers}
         self.replication_threshold = 1
+        self.logger = logging.getLogger("raft")
 
     def start_leader(self):
         self.send_heartbeats()
@@ -52,20 +53,20 @@ class LeaderState:
                     if data.get("success"):
                         self.match_index[peer] = prev_log_index + len(entries)
                         self.next_index[peer] = self.match_index[peer] + 1
-                        logging.info(
+                        self.logger.info(
                             f"[Узел {self.node.node_id}] Отправлен heartbeat на {peer}"
                         )
                     else:
                         self.next_index[peer] -= 1
-                        logging.warning(
+                        self.logger.warning(
                             f"[Узел {self.node.node_id}] Не удалось добавить записи на {peer}. {data.get('reason')}"
                         )
                 else:
-                    logging.warning(
+                    self.logger.warning(
                         f"[Узел {self.node.node_id}] Не удалось отправить heartbeat на {peer}. {response.status_code}"
                     )
             except requests.ConnectionError:
-                logging.warning(
+                self.logger.warning(
                     f"[Узел {self.node.node_id}] Не удалось отправить heartbeat на {peer}"
                 )
 
@@ -96,7 +97,7 @@ class LeaderState:
             conn.commit()
             conn.close()
         except sqlite3.Error as e:
-            logging.error(f"Failed to initialize database: {e}")
+            self.logger.error(f"Failed to initialize database: {e}")
 
     def send_append_entries_to_followers(self, message):
         self.node.message_log.append(
@@ -135,19 +136,19 @@ class LeaderState:
                     if data.get("success"):
                         self.match_index[peer] = current_entry_index
                         success_count += 1
-                        logging.info(
+                        self.logger.info(
                             f"[Узел {self.node.node_id}] Успешно реплицирована запись на {peer}"
                         )
                     else:
-                        logging.warning(
+                        self.logger.warning(
                             f"[Узел {self.node.node_id}] Ошибка репликации записи на {peer} {data.get('reason')}"
                         )
                 else:
-                    logging.warning(
+                    self.logger.warning(
                         f"[Узел {self.node.node_id}] Не удалось реплицировать запись на {peer} {response.status_code}"
                     )
             except requests.exceptions.RequestException:
-                logging.warning(
+                self.logger.warning(
                     f"[Узел {self.node.node_id}] Исключение при репликации на {peer}"
                 )
 
@@ -175,9 +176,9 @@ class LeaderState:
             )
             conn.commit()
             conn.close()
-            logging.info("Запись успешно сохранена в базу данных")
+            self.logger.info("Запись успешно сохранена в базу данных")
         except sqlite3.Error as e:
-            logging.error(f"Не удалось сохранить запись в базу данных. Ошибка: {e}")
+            self.logger.error(f"Не удалось сохранить запись в базу данных. Ошибка: {e}")
 
     def stop(self):
         if self.heartbeat_timer:

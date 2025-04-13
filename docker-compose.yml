@@ -14,9 +14,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./disk:/app/disk 
-    depends_on:
-      - node2
-      - node3
+      - ./logs:/app/logs
 
   node2:
     image: raft-container-node:2
@@ -31,10 +29,8 @@ services:
     restart: always
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ./disk:/app/disk 
-    depends_on:
-      - node1
-      - node3
+      - ./disk:/app/disk
+      - ./logs:/app/logs
 
   node3:
     image: raft-container-node:3
@@ -49,10 +45,8 @@ services:
     restart: always
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ./disk:/app/disk 
-    depends_on:
-      - node1
-      - node2
+      - ./disk:/app/disk
+      - ./logs:/app/logs
       
 networks:
   raft-network:
