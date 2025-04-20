@@ -4,6 +4,7 @@ import threading
 import time
 import logging
 import random
+import traceback
 from servers.follower import FollowerState
 from servers.candidate import CandidateState
 from servers.leader import LeaderState
@@ -24,8 +25,13 @@ class Node:
         self.commit_index = 0
         self.current_state = None
         self.docker_client = docker.from_env()
-        self.container_name = f"raft-containter-node:{node_id}"
+        self.container_name = f"raft-container-node-{node_id}"
         self.logger = logging.getLogger("raft")
+
+        @self.app.errorhandler(Exception)
+        def handle_uncaught(e):
+            self.logger.error(f"[Узел {self.node_id}] Unhandled exception:\n{traceback.format_exc()}")
+            return jsonify({"error": "Internal server error"}), 500
 
         self.app.add_url_rule(
             "/receive_message",

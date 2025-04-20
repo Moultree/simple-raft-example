@@ -1,6 +1,7 @@
 version: '3'
 services:
   node1:
+    container_name: raft-container-node-1
     image: raft-container-node:1
     build: .
     environment:
@@ -10,13 +11,14 @@ services:
       - "6500:5000"
     networks:
       - raft-network
-    restart: always
+    restart: on-failure
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./disk:/app/disk 
       - ./logs:/app/logs
 
   node2:
+    container_name: raft-container-node-2
     image: raft-container-node:2
     build: .
     environment:
@@ -26,13 +28,14 @@ services:
       - "6501:5000"
     networks:
       - raft-network
-    restart: always
+    restart: on-failure
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./disk:/app/disk
       - ./logs:/app/logs
 
   node3:
+    container_name: raft-container-node-3
     image: raft-container-node:3
     build: .
     environment:
@@ -42,7 +45,7 @@ services:
       - "6502:5000"
     networks:
       - raft-network
-    restart: always
+    restart: on-failure
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./disk:/app/disk

@@ -11,7 +11,7 @@ import sqlite3
 class LeaderState:
     def __init__(self, node):
         self.node = node
-        self.heartbeat_interval = 1
+        self.heartbeat_interval = 0.5
         self.heartbeat_timer = None
         self.next_index = {peer: len(self.node.message_log) for peer in self.node.peers}
         self.match_index = {peer: 0 for peer in self.node.peers}
@@ -23,6 +23,9 @@ class LeaderState:
         self.initialize_database()
 
     def send_heartbeats(self):
+        self.logger.info(
+            f"[Узел {self.node.node_id}] Отправка heartbeat-сообщений всем узлам"
+        )
         for peer in self.node.peers:
             next_idx = self.next_index[peer]
             prev_log_index = next_idx - 1
@@ -46,10 +49,19 @@ class LeaderState:
             try:
                 host, port = peer.split(":")
                 response = requests.post(
-                    f"http://{host}:5000/append_entries", json=message_dict
+                    f"http://{host}:5000/append_entries", json=message_dict, timeout=(1.0, 2.0)
+                )
+
+                self.logger.debug(
+                    f"[Узел {self.node.node_id}] Отправлено heartbeat-сообщение на {peer}: {message_dict}"
+                )
+
+                self.logger.debug(
+                    f"[Узел {self.node.node_id}] Получен ответ от {peer}: {response.status_code}"
                 )
                 if response.status_code == 200:
                     data = response.json()
+
                     if data.get("success"):
                         self.match_index[peer] = prev_log_index + len(entries)
                         self.next_index[peer] = self.match_index[peer] + 1
@@ -65,9 +77,9 @@ class LeaderState:
                     self.logger.warning(
                         f"[Узел {self.node.node_id}] Не удалось отправить heartbeat на {peer}. {response.status_code}"
                     )
-            except requests.ConnectionError:
+            except requests.RequestException:
                 self.logger.warning(
-                    f"[Узел {self.node.node_id}] Не удалось отправить heartbeat на {peer}"
+                    f"[Узел {self.node.node_id}] Не удалось отправить heartbeat на {peer}: {e}"
                 )
 
         self.heartbeat_timer = threading.Timer(
@@ -133,7 +145,14 @@ class LeaderState:
                 response = requests.post(url, json=append_entries_msg.to_dict())
                 if response.status_code == 200:
                     data = response.json()
-                    if data.get("success"):
+                    if data.get("term", self.node.current_term) > self.node.current_term:
+                        self.logger.info(
+                            f"[Узел {self.node.node_id}] Обнаружен более новый term {data['term']} от {peer}, демотируюсь в Follower"
+                        )
+                        self.node.current_term = data["term"]
+                        self.node.become_follower()
+                        return
+                    elif data.get("success"):
                         self.match_index[peer] = current_entry_index
                         success_count += 1
                         self.logger.info(

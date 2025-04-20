@@ -1,9 +1,11 @@
 import logging
 import requests
+from flask import Flask, request, jsonify
 import random
 import threading
 from messages.vote_request import VoteRequestMessage
 from messages.vote_response import VoteResponseMessage
+from messages.heartbeat import HeartbeatMessage
 from servers.follower import FollowerState
 
 
@@ -31,12 +33,8 @@ class CandidateState:
         self.node.voted_for = self.node.node_id
 
     def send_vote_requests(self):
-        last_log_index = (
-            len(self.node.message_log) - 1 if len(self.node.message_log) > 0 else -1
-        )
-        last_log_term = (
-            self.node.message_log[last_log_index]["term"] if last_log_index >= 0 else -1
-        )
+        last_log_index = len(self.node.message_log) - 1 if len(self.node.message_log) > 0 else -1
+        last_log_term = self.node.message_log[last_log_index]["term"] if last_log_index >= 0 else -1
 
         vote_request = VoteRequestMessage(
             sender_id=self.node.node_id,
@@ -50,18 +48,25 @@ class CandidateState:
             try:
                 host, port = peer.split(":")
                 response = requests.post(
-                    f"http://{host}:5000/vote_request", json=request_dict
+                    f"http://{host}:5000/vote_request", json=request_dict, timeout=(1.0, 2.0)
                 )
-
+                
                 if response.status_code == 200:
                     vote_response = VoteResponseMessage.from_dict(response.json())
 
                     self.process_vote_response(vote_response, peer)
-
+            except requests.Timeout:
+                self.logger.warning(
+                    f"[Узел {self.node.node_id}] таймаут при запросе голоса у {peer}"
+                )
             except requests.ConnectionError:
                 self.logger.warning(
                     f"[Узлу {self.node.node_id}] не удалось связаться с {peer} во время выборов"
                 )
+        
+        self.logger.info(
+            f"[Узел {self.node.node_id}] {self.node.votes} голосов из {len(self.node.peers)}"
+        )
 
     def process_vote_response(self, vote_response, peer):
         if vote_response.vote_granted:
@@ -75,6 +80,9 @@ class CandidateState:
             return
 
     def evaluate_election_result(self):
+        self.logger.info(
+                f"[Узел {self.node.node_id}] {self.node.votes} {len(self.node.peers)}"
+            )
         if self.node.votes > len(self.node.peers) // 2:
             self.logger.info(
                 f"[Узел {self.node.node_id}] Выиграл выборы, становится лидером"
@@ -84,15 +92,7 @@ class CandidateState:
             self.logger.info(
                 f"[Узел {self.node.node_id}] Проиграл выборы, повторная попытка через паузу"
             )
-            self.schedule_retry_election()
-
-    def schedule_retry_election(self):
-        delay = random.uniform(1, 2)
-        self.retry_election_timer = threading.Timer(delay, self.start_election)
-        self.retry_election_timer.start()
-        self.logger.info(
-            f"[Узел {self.node.node_id}] Повтор выборов запланирован через {delay:.2f} сек."
-        )
+            self.node.become_follower()
 
     def stop(self):
         if self.retry_election_timer:
@@ -100,4 +100,30 @@ class CandidateState:
         self.node.current_state = None
 
     def vote_request(self):
+        data = request.get_json()
+        msg = VoteRequestMessage.from_dict(data)
+
+        if msg.term > self.node.current_term:
+            self.node.current_term = msg.term
+            self.node.become_follower()
+            return self.node.current_state.vote_request()
+
         return FollowerState(self.node).vote_request()
+
+    def append_entries(self):
+        data = request.get_json()
+        hb = HeartbeatMessage.from_dict(data)
+
+        if hb.term < self.node.current_term:
+            return jsonify({
+                "success": False,
+                "term": self.node.current_term,
+                "reason": "Неактульная эпоха"
+            }), 200
+
+        if hb.term > self.node.current_term:
+            self.node.current_term = hb.term
+
+        self.node.become_follower()
+
+        return self.node.current_state.append_entries()
