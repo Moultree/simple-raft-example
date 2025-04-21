@@ -6,7 +6,7 @@ services:
     build: .
     environment:
       - NODE_ID=1
-      - PEERS=node2:6501,node3:6502
+      - PEERS=node2:5000,node3:5000
     ports:
       - "6500:5000"
     networks:
@@ -23,7 +23,7 @@ services:
     build: .
     environment:
       - NODE_ID=2
-      - PEERS=node1:6500,node3:6502
+      - PEERS=node1:5000,node3:5000
     ports:
       - "6501:5000"
     networks:
@@ -40,7 +40,7 @@ services:
     build: .
     environment:
       - NODE_ID=3
-      - PEERS=node1:6500,node2:6501 
+      - PEERS=node1:5000,node2:5000
     ports:
       - "6502:5000"
     networks:

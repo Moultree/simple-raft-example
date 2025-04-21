@@ -1,9 +1,11 @@
 import logging
 import requests
 import threading
+from functools import partial
 from messages.heartbeat import HeartbeatMessage
 from messages.vote_response import VoteResponseMessage
 from messages.vote_request import VoteRequestMessage
+from servers.utils import RequestUtils, do_request
 from flask import request, jsonify
 import sqlite3
 
@@ -48,9 +50,9 @@ class LeaderState:
 
             try:
                 host, port = peer.split(":")
-                response = requests.post(
-                    f"http://{host}:5000/append_entries", json=message_dict, timeout=(1.0, 2.0)
-                )
+                work = partial(do_request, f"http://{host}:5000/append_entries", message_dict)
+
+                response = RequestUtils.call_with_wall_timeout(work, timeout=3)
 
                 self.logger.debug(
                     f"[Узел {self.node.node_id}] Отправлено heartbeat-сообщение на {peer}: {message_dict}"
@@ -77,7 +79,7 @@ class LeaderState:
                     self.logger.warning(
                         f"[Узел {self.node.node_id}] Не удалось отправить heartbeat на {peer}. {response.status_code}"
                     )
-            except requests.RequestException:
+            except Exception as e:
                 self.logger.warning(
                     f"[Узел {self.node.node_id}] Не удалось отправить heartbeat на {peer}: {e}"
                 )
@@ -142,7 +144,10 @@ class LeaderState:
                 entries=entries,
             )
             try:
-                response = requests.post(url, json=append_entries_msg.to_dict())
+                work = partial(do_request, url, append_entries_msg.to_dict())
+
+                response = RequestUtils.call_with_wall_timeout(work, timeout=3)
+
                 if response.status_code == 200:
                     data = response.json()
                     if data.get("term", self.node.current_term) > self.node.current_term:
@@ -166,7 +171,7 @@ class LeaderState:
                     self.logger.warning(
                         f"[Узел {self.node.node_id}] Не удалось реплицировать запись на {peer} {response.status_code}"
                     )
-            except requests.exceptions.RequestException:
+            except RuntimeError:
                 self.logger.warning(
                     f"[Узел {self.node.node_id}] Исключение при репликации на {peer}"
                 )
@@ -207,6 +212,7 @@ class LeaderState:
     def vote_request(self):
         data = request.get_json()
         vote_request = VoteRequestMessage.from_dict(data)
+
         if vote_request.term > self.node.current_term:
             self.node.current_term = vote_request.term
             self.node.become_follower()

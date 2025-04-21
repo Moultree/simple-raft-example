@@ -5,6 +5,8 @@ import time
 import logging
 import random
 import traceback
+from functools import partial
+from servers.utils import RequestUtils, do_request
 from servers.follower import FollowerState
 from servers.candidate import CandidateState
 from servers.leader import LeaderState
@@ -20,7 +22,7 @@ class Node:
         self.message_log = []
         self.election_timer = None
         self.state = "Follower"
-        self.election_timeout = random.uniform(3, 5)
+        self.election_timeout = random.uniform(5, 10)
         self.current_term = 0
         self.commit_index = 0
         self.current_state = None
@@ -63,7 +65,9 @@ class Node:
 
             def delayed_restart():
                 try:
-                    container = self.docker_client.containers.get(self.container_name)
+                    container_mgr = self.docker_client.containers
+                    self.logger.debug(f"‹containers› is {container_mgr!r}, type={type(container_mgr)}")
+                    container = container_mgr.get(self.container_name)
                     container.stop()
                     self.logger.info(f"[Узел {self.node_id}] Контейнер остановлен")
 
@@ -151,16 +155,15 @@ class Node:
 
         for peer in self.peers:
             host, port = peer.split(":")
-            url = f"http://{host}:5000/receive_message"
+            url = f"http://localhost:{port}/receive_message"
+            work = partial(do_request, url, {"sender": self.node_id, "message": message})
             try:
-                response = requests.post(
-                    url, json={"sender": self.node_id, "message": message}
-                )
+                response = RequestUtils.call_with_wall_timeout(work, timeout=3)
                 if response.status_code == 200:
                     self.logger.info(
                         f"[Узел {self.node_id}] Отправлено сообщение на {peer}: {message}"
                     )
-            except requests.ConnectionError:
+            except RuntimeError:
                 self.logger.info(f"[Узел {self.node_id}] Не удалось связаться с {peer}")
 
         return jsonify({"status": "Сообщение отправлено всем узлам"}), 200

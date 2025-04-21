@@ -15,3 +15,9 @@ test-03:
 
 test-04:
 	pytest tests/test_04_client_redirection.py
+
+test-05:
+	pytest tests/test_05_leader_node_failover.py
+
+test-06:
+	pytest tests/test_06_non_leader_node_failover.py

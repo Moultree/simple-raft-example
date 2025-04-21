@@ -1,8 +1,10 @@
 import logging
 import requests
 from flask import Flask, request, jsonify
+from functools import partial
 import random
 import threading
+from servers.utils import RequestUtils, do_request
 from messages.vote_request import VoteRequestMessage
 from messages.vote_response import VoteResponseMessage
 from messages.heartbeat import HeartbeatMessage
@@ -47,22 +49,19 @@ class CandidateState:
         for peer in self.node.peers:
             try:
                 host, port = peer.split(":")
-                response = requests.post(
-                    f"http://{host}:5000/vote_request", json=request_dict, timeout=(1.0, 2.0)
-                )
-                
+                work = partial(do_request, f"http://localhost:{port}/vote_request", request_dict)
+
+                response = RequestUtils.call_with_wall_timeout(work, timeout=3)
+
                 if response.status_code == 200:
                     vote_response = VoteResponseMessage.from_dict(response.json())
 
                     self.process_vote_response(vote_response, peer)
-            except requests.Timeout:
-                self.logger.warning(
-                    f"[Узел {self.node.node_id}] таймаут при запросе голоса у {peer}"
-                )
-            except requests.ConnectionError:
-                self.logger.warning(
-                    f"[Узлу {self.node.node_id}] не удалось связаться с {peer} во время выборов"
-                )
+                
+            except Exception as ex:
+                self.logger.error(
+                    f"[Узел {self.node.node_id}] не удалось связаться с {peer} по причине {ex!r}"
+                    )
         
         self.logger.info(
             f"[Узел {self.node.node_id}] {self.node.votes} голосов из {len(self.node.peers)}"
