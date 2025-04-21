@@ -6,7 +6,6 @@ from conftest import NODES, BASE_URL, get_state, get_leader
 
 
 def test_shutdown_non_leader_preserves_cluster():
-    # allow initial election
     time.sleep(6)
     leader = get_leader()
     assert leader is not None, "Не нашли изначального лидера"
