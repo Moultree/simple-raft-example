@@ -97,16 +97,29 @@ class LeaderState:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                CREATE TABLE IF NOT EXISTS logs (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    node_id TEXT,
-                    term INTEGER,
-                    message TEXT,
-                    commit_index INTEGER,
-                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    leader_id TEXT
-            )
-            """
+                CREATE TABLE IF NOT EXISTS logs
+                (
+                    id
+                    INTEGER
+                    PRIMARY
+                    KEY
+                    AUTOINCREMENT,
+                    node_id
+                    TEXT,
+                    term
+                    INTEGER,
+                    message
+                    TEXT,
+                    commit_index
+                    INTEGER,
+                    timestamp
+                    DATETIME
+                    DEFAULT
+                    CURRENT_TIMESTAMP,
+                    leader_id
+                    TEXT
+                )
+                """
             )
             conn.commit()
             conn.close()
@@ -224,3 +237,25 @@ class LeaderState:
                 vote_granted=False,
             )
             return jsonify(response.to_dict()), 200
+
+    def append_entries(self):
+        data = request.get_json()
+        message = HeartbeatMessage.from_dict(data)
+
+        if message.term >= self.node.current_term:
+            self.logger.info(
+                f"[Узел {self.node.node_id}] Получен AppendEntries с большим term {message.term}, текущий: {self.node.current_term} - демотируюсь")
+            self.node.current_term = message.term
+
+            self.node.become_follower()
+
+            return self.node.current_state.append_entries()
+
+        if message.term < self.node.current_term:
+            self.logger.info(
+                f"[Узел {self.node.node_id}] Получен AppendEntries с меньшим term {message.term}, текущий: {self.node.current_term}"
+            )
+
+            return jsonify({"success": False}), 200
+
+        return None

@@ -49,7 +49,7 @@ class CandidateState:
         for peer in self.node.peers:
             try:
                 host, port = peer.split(":")
-                work = partial(do_request, f"http://localhost:{port}/vote_request", request_dict)
+                work = partial(do_request, f"http://{host}:{port}/vote_request", request_dict)
 
                 response = RequestUtils.call_with_wall_timeout(work, timeout=3)
 
@@ -79,9 +79,6 @@ class CandidateState:
             return
 
     def evaluate_election_result(self):
-        self.logger.info(
-                f"[Узел {self.node.node_id}] {self.node.votes} {len(self.node.peers)}"
-            )
         if self.node.votes > len(self.node.peers) // 2:
             self.logger.info(
                 f"[Узел {self.node.node_id}] Выиграл выборы, становится лидером"

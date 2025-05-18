@@ -65,14 +65,16 @@ class Node:
 
             def delayed_restart():
                 try:
-                    container_mgr = self.docker_client.containers
-                    self.logger.debug(f"‹containers› is {container_mgr!r}, type={type(container_mgr)}")
-                    container = container_mgr.get(self.container_name)
+                    client = docker.from_env()
+                    container = client.containers.get(self.container_name)
                     container.stop()
-                    self.logger.info(f"[Узел {self.node_id}] Контейнер остановлен")
+                    self.logger.info(
+                        f"[Узел {self.node.node_id}] Контейнер '{self.container_name}' остановлен"
+                    )
 
                     time.sleep(duration)
 
+                    container = client.containers.get(self.container_name)
                     container.start()
                     self.logger.info(
                         f"[Узел {self.node_id}] Контейнер перезапущен через {duration} секунд"
@@ -87,7 +89,8 @@ class Node:
                         f"[Узел {self.node_id}] Ошибка при отключении/перезапуске: {str(e)}"
                     )
 
-            threading.Thread(target=delayed_restart).start()
+            t = threading.Thread(target=delayed_restart, daemon=True)
+            t.start()
 
             return (
                 jsonify(
@@ -172,7 +175,7 @@ class Node:
         return jsonify({"messages": self.message_log}), 200
 
     def get_state(self):
-        return jsonify({"state": self.state, "node_id": self.node_id}), 200
+        return jsonify({"state": self.state, "node_id": self.node_id, "term": self.current_term}), 200
 
     def append_entries(self):
         return self.current_state.append_entries()

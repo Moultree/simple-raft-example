@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <title>Панель управления кластером Raft</title>
+    <link rel="stylesheet" type="text/css" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+<h1>Панель управления кластером Raft</h1>
+
+<div id="circle-container" style="position: relative;">
+    <div class="node-circles">
+        {% for node in nodes %}
+            <div
+                    class="node-circle {% if statuses[node.id].state != 'down' %}available{% else %}unavailable{% endif %}"
+                    data-state="{{ statuses[node.id].state }}"
+                    onclick="showDetail('{{ node.id }}')"
+                    id="circle-{{ node.id }}"
+            >
+                {{ node.id }}
+            </div>
+        {% endfor %}
+    </div>
+</div>
+
+<div class="content">
+    <div class="send-panel">
+        <h2>Отправить сообщение лидеру</h2>
+        <form id="send-form">
+            <input type="text" name="message" placeholder="Введите текст сообщения" required/>
+            <button class="btn" type="submit">Отправить</button>
+        </form>
+    </div>
+
+    <div class="detail-panel">
+        <div id="detail-container" style="display:none;">
+            <button class="btn" onclick="hideDetail()">Закрыть</button>
+            <div id="node-detail"></div>
+            <div class="buttons">
+                <button class="btn" onclick="killNode(selectedNode)">Отключить узел</button>
+                <button class="btn" onclick="refreshNode(selectedNode)">Обновить данные</button>
+            </div>
+            <h3>Лог сообщений</h3>
+            <div class="logs" id="detail-logs"></div>
+        </div>
+    </div>
+</div>
+
+<script type="text/javascript">
+    let selectedNode = null;
+
+    function showDetail(id) {
+        selectedNode = id;
+        refreshNode(id);
+        document.getElementById('detail-container').style.display = 'block';
+    }
+
+    function hideDetail() {
+        document.getElementById('detail-container').style.display = 'none';
+    }
+
+    function refreshNode(id) {
+        fetch(`/node/${id}`)
+            .then(res => res.json())
+            .then(data => {
+                document.getElementById('node-detail').innerHTML = `
+            <h2>Node ${id}</h2>
+            <p><strong>Status:</strong> ${data.status.state}</p>
+            <p><strong>Term:</strong> ${data.status.term}</p>
+          `;
+
+                const logsDiv = document.getElementById('detail-logs');
+                logsDiv.innerHTML = '';
+                if (data.logs.length) {
+                    data.logs.forEach(e => {
+                        const d = document.createElement('div');
+                        d.textContent = `[${e.term}] ${e.message}`;
+                        logsDiv.appendChild(d);
+                    });
+                } else {
+                    logsDiv.textContent = 'No logs';
+                }
+
+                const circle = document.getElementById(`circle-${id}`);
+                if (data.status.state !== 'down') {
+                    circle.classList.add('available');
+                    circle.classList.remove('unavailable');
+                } else {
+                    circle.classList.add('unavailable');
+                    circle.classList.remove('available');
+                }
+            })
+            .catch(console.error);
+    }
+
+    function killNode(id) {
+        fetch(`/kill/${id}`, {method: 'POST'})
+            .then(() => refreshNode(id));
+    }
+
+    function drawArrow(fromElem, toElem) {
+        const container = document.getElementById('circle-container');
+        const start = fromElem.getBoundingClientRect();
+        const end = toElem.getBoundingClientRect();
+        const cRect = container.getBoundingClientRect();
+
+        const x1 = start.left + start.width / 2 - cRect.left;
+        const y1 = start.top + start.height / 2 - cRect.top;
+        const x2 = end.left + end.width / 2 - cRect.left;
+        const y2 = end.top + end.height / 2 - cRect.top;
+
+        const dx = x2 - x1, dy = y2 - y1;
+        const angle = Math.atan2(dy, dx) * 180 / Math.PI;
+        const length = Math.hypot(dx, dy);
+
+        const line = document.createElement('div');
+        line.className = 'arrow-line';
+        line.style.width = length + 'px';
+        line.style.top = y1 + 'px';
+        line.style.left = x1 + 'px';
+        line.style.transform = `rotate(${angle}deg)`;
+        container.appendChild(line);
+
+        setTimeout(() => container.removeChild(line), 800);
+    }
+
+    function animateSend() {
+        const leader = document.querySelector('.node-circle[data-state="Leader"]');
+        if (!leader) return;
+        const targets = Array.from(document.querySelectorAll('.node-circle'))
+            .filter(c => c !== leader);
+
+        targets.forEach((c, i) => {
+            setTimeout(() => {
+                if (c.classList.contains('available')) {
+                    c.classList.add('pulse');
+                    setTimeout(() => c.classList.remove('pulse'), 600);
+                }
+                drawArrow(leader, c);
+            }, (i + 1) * 700);
+        });
+    }
+
+    document.getElementById('send-form').addEventListener('submit', function (e) {
+        e.preventDefault();
+        const form = e.target;
+        const data = new URLSearchParams(new FormData(form));
+        fetch('/send', {method: 'POST', body: data})
+            .then(() => {
+                animateSend();
+                form.reset();
+            })
+            .catch(console.error);
+    });
+</script>
+</body>
+</html>
